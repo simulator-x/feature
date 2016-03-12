@@ -12,7 +12,7 @@ class GestureTime(gesture: String) {
 
   private var times: List[(Long, Long)] = Nil
 
-  def addTime(time: (String, String), offset: Long = 0L) {
+  def addTime(time: (String, String), offset: Long) {
     val t1 = parseToLong(time._1)
     val t2 = parseToLong(time._2)
     if (t1.isDefined && t2.isDefined) {

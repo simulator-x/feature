@@ -3,7 +3,7 @@ package simx.components.ai.feature.sl_chris
 import java.io.{File, FileInputStream, ObjectInputStream}
 
 import simx.components.ai.feature.recording
-import simx.components.ai.feature.recording.storage.{Persistence, Storage}
+import simx.components.ai.feature.recording.storage.{StorageMetaData, Persistence, Storage}
 import simx.core.helper.IO
 import simx.core.worldinterface.eventhandling.EventHandler
 
@@ -16,42 +16,52 @@ import scala.swing.FileChooser
  * in June 2015.
  */
 
+object AnnotationSource {
+  def apply(annotationFile: File, recordingStart: Option[Long]) =
+    new AnnotationSource(Some(annotationFile), recordingStart)
+
+  def defaultFileMapper(playbackDataFile: File) =
+    IO.changeExtension(playbackDataFile, "csv")
+
+  def from(storageMetaData: StorageMetaData, fileMapper: File => File = defaultFileMapper) =
+    new AnnotationSource(storageMetaData.storageFile.map(fileMapper), storageMetaData.recordingStart)
+}
+
+class AnnotationSource(val annotationFile: Option[File], val recordingStart: Option[Long])
+
 /**
- *
- * @param annotationFile  A comma separated values (csv) file, that contains annotations.
- * @param recordingStart  Start time (i.e. timestamp) of the video that the annotations correspond to.
  * @note  Annotations a typically relative to the runtime of the corresponding video (0 ms).
  *        In order to correctly refer annotations to recorded data (e.g. user movements),
  *        the start time of the corresponding video has to be applied as an offset.
  *        If the standard Simulator X entity recording mechanism is used, this start time can be obtained from
  *        the loaded entity recording file via Storage.recordingStart.
  */
-class AnnotationReader(annotationFile: File, recordingStart: Long) {
+class AnnotationReader(sources: List[AnnotationSource]) {
+
+  /**
+   * @param annotationFile  A comma separated values (csv) file, that contains annotations.
+   * @param recordingStart  Start time (i.e. timestamp) of the video that the annotations correspond to.
+   */
+  def this(annotationFile: File, recordingStart: Long) =
+    this(AnnotationSource(annotationFile, Some(recordingStart)) :: Nil)
+
+  /**
+   * Convenience
+   */
+  def this(annotationFile: File, recordingStart: List[StorageMetaData]) =
+    this(AnnotationSource(annotationFile, Some(recordingStart.head.recordingStart.get)) :: Nil)
 
   protected var gestures = Map[Symbol, GestureTime]()
 
-  runTimeInputReader(annotationFile)
-
+  runTimeInputReader()
 
   def gesture(gestureAnnotation: String) = gestures(Symbol(gestureAnnotation))
   def apply(gestureAnnotation: String) = gesture(gestureAnnotation)
 
-  /**
-   * for example read file and direct print single gestures with its times from annotation
-   */
-  private def runTimeInputReader(annotationFile: File) {
-    readTimeFile(annotationFile)
-  }
-
-  /**
-   * read annotation file with file chooser
-   */
-  protected def runTimeInputReader() {
-    val file = chooseFile()
-    file match {
-      case Some(f) =>
-        readTimeFile(f)
-      case None => chooseFile("[ERROR] try again!")
+  private def runTimeInputReader() {
+    sources.foreach{ source =>
+      if(source.annotationFile.isDefined)
+        readTimeFile(source.annotationFile.get, source.recordingStart.getOrElse(0L))
     }
   }
 
@@ -69,14 +79,14 @@ class AnnotationReader(annotationFile: File, recordingStart: Long) {
    * line pattern
    * | start; end; gesturename
    */
-  private def handleLineCSV(line: String) = {
+  private def handleLineCSV(line: String, recordingStart: Long) = {
     if (!line.startsWith("\"")) {
       val lineArray = line.split(";")
       if (lineArray.length == 3) {
         val startTime = lineArray(0)
         val endTime = lineArray(1)
         val gesture = lineArray(2).replace("\"", "")
-        handleGestureTime(gesture, startTime, endTime)
+        handleGestureTime(gesture, startTime, endTime, recordingStart)
       }
     }
   }
@@ -85,7 +95,7 @@ class AnnotationReader(annotationFile: File, recordingStart: Long) {
    * line pattern
    * |  start   end   duration    gesturename|
    */
-  private def handleLineTXT(l: String) = {
+  private def handleLineTXT(l: String, recordingStart: Long) = {
     // if there is a first tab remove that
     var line = l
     if (line.startsWith("\t")) line = line.replaceFirst("\t", "")
@@ -96,16 +106,14 @@ class AnnotationReader(annotationFile: File, recordingStart: Long) {
       val endTime = lineArray(1).replace(":", "")
       val gesture = lineArray(3)
       val duration = lineArray(2)
-      handleGestureTime(gesture, startTime, endTime)
+      handleGestureTime(gesture, startTime, endTime, recordingStart)
     }
   }
 
-
-  private def extHandlingMethods: Map[String, String => Unit] = Map(
+  private def extHandlingMethods: Map[String, (String, Long) => Unit] = Map(
     "csv" -> handleLineCSV, "txt" -> handleLineTXT)
 
-
-  private def handleGestureTime(gesture: String, startTime: String, endTime: String) {
+  private def handleGestureTime(gesture: String, startTime: String, endTime: String, recordingStart: Long) {
     gestures.get(Symbol(gesture)) match {
       case Some(gt) =>
         gt.addTime((startTime, endTime), recordingStart)
@@ -118,27 +126,21 @@ class AnnotationReader(annotationFile: File, recordingStart: Long) {
     }
   }
 
-
   /**
    * no extension needed
    */
-  private def readTimeFile(file: File) {
-    println("[info][TimeInputReader] reading " + file)
-    //val ext = file.split("\\.")(1)
-    val (name, ext) = IO.split(file)
-    val m = ext.flatMap(extHandlingMethods.get)
-    if (m.isDefined) {
-      Source.fromFile(file).getLines().foreach(m.get)
-    } else {
-      println("[error][TimeInputReader] unsupported file extension! only the following extensions are supported: " + extHandlingMethods.keys.mkString(", "))
-    }
-    println("[info][TimeInputReader] finished reading gestures " + gestures.keys.mkString("[", ", ", "]") + " from " + file)
+  private def readTimeFile(annotationFile: File, recordingStart: Long) {
+    println("[info][TimeInputReader] reading " + annotationFile)
+    val (name, ext) = IO.split(annotationFile)
+    def notSupported =
+      throw new Exception("[error][TimeInputReader] unsupported file extension! " +
+        "Only the following extensions are supported: " + extHandlingMethods.keys.mkString(", "))
+    val method =
+      ext.flatMap(extHandlingMethods.get).getOrElse(notSupported)
+    Source.fromFile(annotationFile).getLines().foreach(method(_, recordingStart))
+    println("[info][TimeInputReader] finished reading gestures " +
+      gestures.keys.mkString("[", ", ", "]") + " from " + annotationFile)
   }
-
-
-//  private def addHandlingMethod(extension: String, handlingFunction: String => Unit) {
-//    extHandlingMethods += extension -> handlingFunction
-//  }
 
   override def toString = this.gestures.mkString("\n")
 

@@ -60,12 +60,12 @@ object Persistence extends DomSerialization with PullParsingSerialization with S
     pullParseFromXml(f)
   }
   
-  def load(storageFile: File, usePullParsing: Boolean = true): Storage = {
+  def load(storageFile: File, usePullParsing: Boolean): Storage = {
     println("[info][Persistence] Loading File: " + storageFile.getAbsolutePath)
     val (_, extension) = IO.split(storageFile)
     extension match {
       case Some("xml") =>
-        if(usePullParsing) Persistence.pullParseFromXml(storageFile) else Persistence.fromXml(storageFile)
+        if(usePullParsing) Persistence.pullParseFromXml(storageFile) else PersistenceOptimized.fromXml(storageFile)
       case Some("bin") =>
         val ooi = new ObjectInputStream(new FileInputStream(storageFile))
         ooi.readObject().asInstanceOf[Storage]
@@ -75,4 +75,41 @@ object Persistence extends DomSerialization with PullParsingSerialization with S
         throw new Exception("[error][Persistence] Unsupported file")
     }    
   }
+
+  def load(storageFile: File): Storage =
+    load(storageFile, usePullParsing = false)
+
+  def load(storageFiles: Seq[File], usePullParsing: Boolean): Storage = {
+    val storages = storageFiles.map(load(_, usePullParsing))
+    storages.reduceLeft(merge)
+  }
+
+  def load(storageFiles: Seq[File]): Storage =
+    load(storageFiles, usePullParsing = true)
+
+  /**
+   * Merges s2 into s1, i.e. puts values of properties in s2 after corresponding values of properties in s1
+   */
+  private def merge(s1: Storage, s2: Storage): Storage = {
+    s2.entities.foreach{ storedEntity2 =>
+      val storedEntity1 = s1.entities.find(_.name == storedEntity2.name).getOrElse(throw
+        new Exception("[error][Persistence] Recordings are not compatible. No corresponding entity for '" +
+          storedEntity2.name + "' found"))
+
+      storedEntity2.properties.foreach{storedProperty2 =>
+        val storedProperty1 = storedEntity1.properties.find(_.info == storedProperty2.info).getOrElse(throw
+          new Exception("[error][Persistence] Recordings are not compatible. No corresponding property for '" +
+            storedProperty2.info + "' of entity '" + storedEntity2.name + "' found"))
+
+        def mergeProperties[T](sp: StoredProperty[T], toMerge: StoredProperty[_]): Unit = {
+          sp.values = sp.values ::: toMerge.values.asInstanceOf[List[(T, Long)]]
+        }
+
+        mergeProperties(storedProperty1, storedProperty2)
+      }
+    }
+    s1.metaData = s1.metaData ::: s2.metaData
+    s1
+  }
+
 }

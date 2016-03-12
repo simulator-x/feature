@@ -23,7 +23,7 @@ package simx.components.ai.mipro.supervisedlearning
 import java.io.File
 
 import simx.components.ai.feature.recording.storage.{PersistenceOptimized, Storage, Persistence}
-import simx.components.ai.feature.recording.{StartFastForwardPlayback, EntityPlayer}
+import simx.components.ai.feature.recording.{FastForwardPlayback, EntityPlayer}
 import simx.core.helper.{Jfx, IO}
 import simx.core.svaractor.SVarActor
 
@@ -59,7 +59,7 @@ trait SupervisedLearning extends SVarActor{
   val neuralNetworkFolder = Jfx.askForFolder("Select neural network folder.").get
 
   def startPlayback(): Unit ={
-    if(slData.isFromRecording) entityPlayer.collect { case player => player ! StartFastForwardPlayback(forerunInMillis = 10000L, coolDownInMillis = 3000L, speedUp = 10L) }
+    if(slData.isFromRecording) entityPlayer.collect { case player => player ! FastForwardPlayback(forerunInMillis = 10000L, coolDownInMillis = 3000L, speedUp = 10L) }
   }
 
   implicit var slData: SLData = SLData(playbackData, playbackAnnotationFile, task)

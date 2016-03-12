@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 The SIRIS Project
+ * Copyright 2016 The SIRIS Project
  *
  *    Licensed under the Apache License, Version 2.0 (the "License");
  *    you may not use this file except in compliance with the License.
@@ -23,9 +23,6 @@ package simx.components.ai.feature.recording.storage
 import java.io.File
 
 /**
- * Created by martin on 6/15/2015.
+ * Created by chris on 18/01/16.
  */
-class Storage() extends Serializable {
-  var entities = Set[StoredEntity]()
-  var metaData: List[StorageMetaData] = Nil
-}
+case class StorageMetaData(storageFile: Option[File], recordingStart: Option[Long])

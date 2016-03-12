@@ -7,14 +7,14 @@ import java.io.{File, FileOutputStream, ObjectOutputStream}
 import java.text.SimpleDateFormat
 import java.util.{Date, UUID}
 
-import simx.components.ai.feature.recording.storage.{Persistence, StoredProperty, StoredEntity, Storage}
+import simx.components.ai.feature.recording.storage._
 import simx.components.ai.feature.sl_chris.VideoHandling
 import simx.core.entity.Entity
 import simx.core.entity.description.SVal
 import simx.core.entity.typeconversion.ConvertibleTrait
 import simx.core.helper.IO
 import simx.core.ontology.types.OntologySymbol
-import simx.core.ontology.{SValDescription, types}
+import simx.core.ontology.{Symbols, EntityDescription, SValDescription, types}
 import simx.core.svaractor.SVarActor
 import simx.core.svaractor.TimedRingBuffer.Time
 import simx.core.svaractor.unifiedaccess.{EntityUpdateHandling, StateParticleInfo}
@@ -22,8 +22,10 @@ import simx.core.svaractor.unifiedaccess.{EntityUpdateHandling, StateParticleInf
 /**
  * Created by martin on 5/20/2015.
  */
-class EntityRecorder(private var recordedEntities: Set[Entity] = Set())
-  extends SVarActor with EntityUpdateHandling with VideoHandling {
+class EntityRecorder(
+    private var recordedEntities: Set[Entity] = Set(),
+    private var defaultFolder: File = new File("files/entities/entityRecording")
+  ) extends SVarActor with EntityUpdateHandling with VideoHandling {
 
   private var isRecording: Boolean = false
   //File name with no extension
@@ -81,7 +83,7 @@ class EntityRecorder(private var recordedEntities: Set[Entity] = Set())
         //val oos = new ObjectOutputStream(new FileOutputStream(new File(fileBase.get.getAbsolutePath + fileExtension)))
         //oos.writeObject(storage)
         //oos.close()
-        Persistence.saveToFile(storage, new File(fileBase.get.getAbsolutePath + fileExtension))
+        PersistenceOptimized.saveToFile(storage, new File(fileBase.get.getAbsolutePath + fileExtension))
         println("[info][EntityRecorder] Finished writing to file: " + fileBase.get.getAbsolutePath + fileExtension)
         storage = new Storage()
       } else {
@@ -95,6 +97,16 @@ class EntityRecorder(private var recordedEntities: Set[Entity] = Set())
   override protected def startUp() = {
     println("[info][EntityRecorder] Initializing")
     recordedEntities.foreach(addToRecording)
+
+    new EntityDescription('Recorder, types.EntityType(Symbols.record)).realize{ e =>
+      e.set(types.Enabled(false))
+      e.observe(types.Enabled){ newValue =>
+        if(newValue)
+          self ! StartEntityRecording(defaultFolder)
+        else
+          self ! StopEntityRecording()
+      }
+    }
   }
 
   var storage = new Storage()
@@ -110,8 +122,8 @@ class EntityRecorder(private var recordedEntities: Set[Entity] = Set())
     if(e.getSVars(types.Image).nonEmpty) {
       def onNewImage(image: BufferedImage, timestamp: Time) {
         //Store timestamp of first image that is used for the video
-        if(storage.recordingStart.isEmpty)
-          storage.recordingStart = Some(timestamp.timeInMillis)
+        if(storage.metaData.isEmpty)
+          storage.metaData ::= StorageMetaData(None, Some(timestamp.timeInMillis))
       }
       startVideoRec(e, onNewImage)
     }

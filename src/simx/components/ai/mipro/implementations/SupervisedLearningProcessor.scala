@@ -41,7 +41,8 @@ class SupervisedLearningProcessor(implicit val slData: SLData)
   private var gestureName: Option[String] = None
   private var annotations: Option[AnnotationReader] = None
 
-  if(!slData.isPredict && slData.isFromRecording) annotations = Some(new AnnotationReader(slData.annotationFile.get, slData.playbackData.get.recordingStart.get))
+  if(!slData.isPredict && slData.isFromRecording) annotations =
+    Some(new AnnotationReader(slData.annotationFile.get, slData.playbackData.get.metaData))
   var magic: List[Float] = Nil
 
   def prediction() = {

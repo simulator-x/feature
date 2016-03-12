@@ -83,6 +83,10 @@ trait VideoHandling extends SVarActor with EventHandler with EventProvider with 
       }
       lastFrameTimestamp = Some(timestamp)
 
+      if(aImage.getWidth == 1 && aImage.getHeight == 1)
+        throw new Exception(Console.RED + "[error][VideoHandling] Received image has width and height equal to 1. " +
+          "Is the camera (e.g. Kinect sensor) plugged in and properly set up?" + Console.RESET)
+
       //videoCursor += 1000/30
       val tConvertedImage = convertToType(aImage, BufferedImage.TYPE_3BYTE_BGR)
       videoWriter.get.encodeVideo(0,

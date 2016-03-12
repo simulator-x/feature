@@ -24,7 +24,7 @@ import java.io.File
 import java.util.UUID
 
 import com.thoughtworks.xstream.XStream
-import simx.components.ai.feature.recording.storage.{Storage, StoredEntity, StoredProperty}
+import simx.components.ai.feature.recording.storage.{StorageMetaData, Storage, StoredEntity, StoredProperty}
 
 import scala.collection.mutable
 import scala.xml.pull.{EvElemEnd, EvElemStart, EvText}
@@ -43,7 +43,7 @@ trait PullParsingSerialization extends PullParsing with SemanticTypeRegistry {
     val storage     = new Storage
 
     def onTextCompanionVideoStartTime(s: Storage)(t: EvText): Unit = {
-      s.recordingStart = Some(t.text.toLong)
+      s.metaData ::= StorageMetaData(Some(storageFile), Some(t.text.toLong))
     }
 
     addEvHandler(Exactly("entityRecording", "companionVideoStartTime"), OnText(onTextCompanionVideoStartTime(storage)))

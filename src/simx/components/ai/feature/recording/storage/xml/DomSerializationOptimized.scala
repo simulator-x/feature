@@ -26,7 +26,7 @@ import java.io.{File, ObjectInputStream, FileInputStream, FileNotFoundException,
 import com.thoughtworks.xstream.XStream
 import com.thoughtworks.xstream.converters.extended.EncodedByteArrayConverter
 import simplex3d.math.floatx.{ConstVec3f, Vec3f, ConstMat4f}
-import simx.components.ai.feature.recording.storage.{StoredProperty, StoredEntity, Storage}
+import simx.components.ai.feature.recording.storage.{StorageMetaData, StoredProperty, StoredEntity, Storage}
 import simx.core.entity.typeconversion.ConvertibleTrait
 import simx.core.helper.{chirality, IO}
 import simx.core.ontology.{SValDescription, types}
@@ -56,7 +56,7 @@ class DomSerializationOptimized extends SemanticTypeRegistry with SpecialSeriali
       println(Console.MAGENTA + "Parsing " + storageFile.getName + Console.RESET)
     }
     before = System.currentTimeMillis()
-    storage.recordingStart = (storageXml \ "companionVideoStartTime").headOption.map{_.text.toLong}
+    storage.metaData ::= StorageMetaData(Some(storageFile), (storageXml \ "companionVideoStartTime").headOption.map{_.text.toLong})
     parseEntities(storageXml, storage)
     if(print_to_console)
       println(Console.GREEN + "Finished parsing file (" + (System.currentTimeMillis() - before) + "ms)" + Console.RESET)
@@ -183,8 +183,8 @@ class DomSerializationOptimized extends SemanticTypeRegistry with SpecialSeriali
 
   def toXML(storage: Storage): Elem = {
     <entityRecording>
-      {if(storage.recordingStart.isDefined)
-      <companionVideoStartTime>{storage.recordingStart.get.toString}</companionVideoStartTime>}
+      {if(storage.metaData.nonEmpty)
+      <companionVideoStartTime>{storage.metaData.head.recordingStart.get.toString}</companionVideoStartTime>}
       {storage.entities.map(toXML)}
     </entityRecording>
   }

@@ -151,12 +151,15 @@ trait SemanticValueDSL extends SVarActor with NamedActor with WorldInterfaceHand
     super.startUp()
     _requirements.foreach( requirement => {
       onOneEntityAppearance(requirement.semanticEntityReference.toFilter) { e =>
-        if(_name.isDefined) {println("[info][" + actorName + "] Got entity " + e)}
+        if(_name.isDefined) {println("[info][" + actorName + "] Got entity " + e.getSimpleName)}
         val storage = new SValSet()
         localData = localData.updated(requirement.semanticEntityReference, storage)
         onEntityUpdate(e){
           case Add(entity, info) if requirement.matches(info) =>
+            if(_name.isDefined) {println("[info][" + actorName + "] Got requirement " + info.identifier.toString())}
             observeSVar(entity, storage)(info)
+          case change: Add[_] =>
+            if(_name.isDefined) {println("[info][" + actorName + "] Got but does not require " + change.info.identifier)}
           case _ =>
         }
       }

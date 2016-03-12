@@ -82,6 +82,10 @@ trait ProcessingNode extends SemanticValueDSL with EventDSL {
     def the(what: properties.type) = new {
       def of(semanticEntityReference: SemanticEntityReference) = 
         createIncompleteProduction_With(semanticEntityReference, onOneEntityAppearance(_)(_))
+      def of(semanticEntityReference: SVal.SValType[_]) =
+        createIncompleteProduction_With(
+          new SemanticEntityReference(semanticEntityReference),
+          onOneEntityAppearance(_)(_))
       def of(what: entity.type) = new {
         def describedBy(semanticEntityReference: SemanticEntityReference) = 
           createIncompleteProduction_With(semanticEntityReference, onOneEntityAppearance(_)(_))

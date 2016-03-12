@@ -8,7 +8,7 @@ import simx.core.entity.component.EntityCreationHandling
 import simx.core.entity.description.SVal
 import simx.core.entity.typeconversion.ConvertibleTrait
 import simx.core.helper.{IO, chirality}
-import simx.core.ontology.{SValDescription, EntityDescription, types}
+import simx.core.ontology.{Symbols, SValDescription, EntityDescription, types}
 import simx.core.svaractor.semantictrait.base.GroundedSymbolFeatures
 import simx.core.svaractor.{TimedRingBuffer, SVarActor}
 import simx.core.svaractor.TimedRingBuffer.At
@@ -16,20 +16,25 @@ import simx.core.svaractor.unifiedaccess.EntityUpdateHandling
 import simx.core.worldinterface.WorldInterfaceActor
 import simx.core.worldinterface.eventhandling.EventProvider
 
+abstract class PlaybackMode()
 case class CreateEntities()
-case class StartPlayback()
-case class StartRealTimePlayback()
-case class StartFastForwardPlayback(
+case class RealTimePlayback() extends PlaybackMode
+case class FastForwardPlayback(
   forerunInMillis: Long = 5000L,
   coolDownInMillis: Long = 3000L,
-  speedUp: Long = 2L)
+  speedUp: Long = 2L) extends PlaybackMode
 
 /**
  * Created by
  * martin
  * in May 2015.
  */
-class EntityPlayer(storage: Storage)  extends SVarActor with EntityUpdateHandling with EntityCreationHandling with EventProvider {
+class EntityPlayer(
+  storage: Storage,
+  playbackMode: PlaybackMode = RealTimePlayback(),
+  nextFileDelta: Option[Long] = Some(10000L)
+) extends SVarActor with EntityUpdateHandling with EntityCreationHandling with EventProvider
+{
 
   case class PlayBackItem(timestamp: Long, entityRef: UUID, semanticValue: SVal.SValType[_]) {
     def entity: Entity = playbackEntities(entityRef).get
@@ -52,9 +57,8 @@ class EntityPlayer(storage: Storage)  extends SVarActor with EntityUpdateHandlin
   private var speedUp: Option[Long] = None
 
   addHandler[CreateEntities]{msg => createEntities()}
-  addHandler[StartPlayback]{msg => startPlayback()}
-  addHandler[StartRealTimePlayback]{msg => startPlayback()}
-  addHandler[StartFastForwardPlayback]{msg =>
+  addHandler[RealTimePlayback]{msg => startPlayback()}
+  addHandler[FastForwardPlayback]{msg =>
     forerun = Some(msg.forerunInMillis)
     coolDown = Some(msg.coolDownInMillis)
     if(msg.speedUp != 0L) speedUp = Some(msg.speedUp)
@@ -64,6 +68,12 @@ class EntityPlayer(storage: Storage)  extends SVarActor with EntityUpdateHandlin
 
   override protected def startUp() = {
     provideEvent(Events.playbackFinished)
+    new EntityDescription('Player, types.EntityType(Symbols.record)).realize{ e =>
+      e.set(types.Enabled(false))
+      e.observe(types.Enabled){ newValue =>
+        if(newValue) self ! playbackMode 
+      }
+    }
     self ! CreateEntities()
   }
 
@@ -85,8 +95,10 @@ class EntityPlayer(storage: Storage)  extends SVarActor with EntityUpdateHandlin
       val recordingDuration = playbackData.last.timestamp - playbackData.head.timestamp
       println("[info][EntityPlayer] Recording duration is " + recordingDuration + " ms.")
 
-      if (storage.recordingStart.isDefined) {
-        val recToVidOffset = storage.recordingStart.get - playbackData.head.timestamp
+      if (storage.metaData.nonEmpty) {
+        val earliestPlaybackStart =
+          storage.metaData.flatMap(_.recordingStart).sortWith(_ < _).head
+        val recToVidOffset = earliestPlaybackStart - playbackData.head.timestamp
         println("[info][EntityPlayer] Recording to video start offset is " + recToVidOffset + " ms.")
       }
       entitiesCreated = true
@@ -156,6 +168,11 @@ class EntityPlayer(storage: Storage)  extends SVarActor with EntityUpdateHandlin
 
     if(cursor+1 < data.length) {
       var deltaUntilNextSet = data(cursor+1).timestamp - item.timestamp
+      if(nextFileDelta.isDefined && deltaUntilNextSet > nextFileDelta.get) {
+        println(Console.GREEN + "[info][EntityPlayer] Detected delta between value changes greater than 10sec. " +
+          "Assuming next playback file. Reducing delta to 500ms (real time)." + Console.RESET)
+        deltaUntilNextSet = 500L
+      }
       if(fastForward) {
         if(speedUp.isDefined) {
           deltaUntilNextSet = deltaUntilNextSet / speedUp.get
