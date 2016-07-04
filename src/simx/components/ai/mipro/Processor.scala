@@ -61,7 +61,7 @@ abstract class Processor extends ProcessingNode
    semanticEntityReference: SemanticEntityReference,
    entityRequestCall: (EntityFilter, Entity => Any) => Unit )
   {
-    def `with`[DataType, B, X <: Base, S <: Thing](production: => SVal[DataType, TypeInfo[DataType, DataType], X, S]) =
+    def `with`(production: => SVal.SValType[_]) =
     {
       addRule(semanticEntityReference, entityRequestCall, () => production)
     }
@@ -112,13 +112,14 @@ abstract class Processor extends ProcessingNode
     _allRequirementsUnderObservation
   }
 
-  override def onStartOfObservation(requirementInfo: StateParticleInfo[_]): Unit = {
+  override def onStartOfObservation(e: Entity, requirementInfo: StateParticleInfo[_]): Unit = {
     //println("observing " + info.svar)
     //println(e.id, info.svar.id)
     syncTimes = syncTimes.updated(requirementInfo.svar.id, 0L)
   }
 
   override def onNewRequirementValue(
+    e: Entity,
     requirementInfo: StateParticleInfo[_],
     timestamp: simx.core.svaractor.TimedRingBuffer.Time): Unit =
   {
@@ -139,6 +140,8 @@ abstract class Processor extends ProcessingNode
     }
   }
 
+  protected final val NoResult = types.Result(Symbols.none).asAny
+
   private def checkProductions(): Unit = {
     productions.foreach{tuple =>
       val e = tuple._1
@@ -146,7 +149,13 @@ abstract class Processor extends ProcessingNode
       ps.foreach{p =>
         //println("Setting " + e.getSimpleName)
         try {
-          e.set(p.apply(), At(sync.t0), TimedRingBuffer.UnbufferedTimeStoring){(_ : e.SelfType) => {}}
+          val res = p.apply()
+          res match {
+            case sVal: types.Result if sVal.value == Symbols.none =>
+              //println("[info][Processor] No result, skipping to set entity property.")
+            case _ =>
+              e.set(res, At(sync.t0), TimedRingBuffer.UnbufferedTimeStoring){(_ : e.SelfType) => {}}
+          }
         } catch {
           case e: LocalCopyNotFound =>
             printlnProductionWarning(e.msg)

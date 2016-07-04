@@ -48,6 +48,60 @@ trait SemanticValueDSL extends SVarActor with NamedActor with WorldInterfaceHand
       new IncompleteSemanticEntityReference(requiredProperties)
   }
 
+  //protected case object entities
+  protected case object properties
+
+  object Update {
+    def the(what: properties.type) = new {
+      def of(semanticEntityReference: SemanticEntityReference) = new IncompleteSetOperation(semanticEntityReference)
+      def of(semanticEntityReference: SValType[_]): IncompleteSetOperation =
+        of(new SemanticEntityReference(semanticEntityReference))
+    }
+  }
+
+  class IncompleteSetOperation(semanticEntityReference: SemanticEntityReference) {
+    def `with`(value: SVal.SValType[_]): Unit = {
+
+      if(localEntityReferences.contains(semanticEntityReference)) {
+        localEntityReferences(semanticEntityReference).set(value)
+      } else {
+
+        if(!bufferedEntitySetOperations.contains(semanticEntityReference)) {
+
+          if(_name.isDefined) {
+            println("[info][" + actorName + "] Requesting entity described by '"
+              + semanticEntityReference.toShortString + "' for set operation." )
+          }
+
+          onOneEntityAppearance(semanticEntityReference.toFilter) { e =>
+
+            if(_name.isDefined) {
+              println("[info][" + actorName + "] Received entity described by '"
+                + semanticEntityReference.toShortString + "' for set operation. Applying " +
+                bufferedEntitySetOperations.getOrElse(semanticEntityReference, Nil).size + " buffered set operation(s) now."
+              )
+            }
+
+            localEntityReferences = localEntityReferences.updated(semanticEntityReference, e)
+            bufferedEntitySetOperations.getOrElse(semanticEntityReference, Nil).reverse.foreach(e.set(_))
+            bufferedEntitySetOperations -= semanticEntityReference
+          }
+        }
+
+        val buffer = bufferedEntitySetOperations.getOrElse(semanticEntityReference, Nil)
+        bufferedEntitySetOperations =
+          bufferedEntitySetOperations.updated(semanticEntityReference, value :: buffer)
+
+        if(_name.isDefined) {
+          println("[info][" + actorName + "] Buffering set operation for entity described by '"
+            + semanticEntityReference.toShortString + "'. " +
+            bufferedEntitySetOperations.getOrElse(semanticEntityReference, Nil).size + " operation(s) is/are now buffered in total." )
+        }
+
+      }
+    }
+  }
+
   case class LocalCopyNotFound(msg: String) extends Exception(msg)
 
   protected implicit def
@@ -63,8 +117,11 @@ trait SemanticValueDSL extends SVarActor with NamedActor with WorldInterfaceHand
         property.apply(sVal.value, sVal.getTimeStamp, sVal.getHistory)
       } catch {
         case e: SValNotFound =>
-          throw LocalCopyNotFound("Could not find LocalCopy of " +
+          throw LocalCopyNotFound("Could not find a local copy of property" +
                                   property.semantics.toString +
+                                  " from entity described by " + semanticEntityReference.toString())
+        case e: NoSuchElementException =>
+          throw LocalCopyNotFound("Could not find any local copy of any property" +
                                   " from entity described by " + semanticEntityReference.toString())
       }
     }
@@ -77,6 +134,9 @@ trait SemanticValueDSL extends SVarActor with NamedActor with WorldInterfaceHand
   private var _requirements = List[ConstraintSemanticEntityReference]()
   //semantic entity description -> local copies of required properties (SValSet)
   protected var localData = Map[SemanticEntityReference, SValSet]()
+  //semantic entity description -> local reference to entity
+  protected var localEntityReferences = Map[SemanticEntityReference, Entity]()
+  private   var bufferedEntitySetOperations = Map[SemanticEntityReference, List[SVal.SValType[_]]]()
 
   //TODO CleanUp
 
@@ -118,6 +178,16 @@ trait SemanticValueDSL extends SVarActor with NamedActor with WorldInterfaceHand
     def from(semanticEntityReference: SVal.SValType[_]): Unit =
       addRequirement(new SemanticEntityReference(semanticEntityReference), requiredProperties)
 
+    def fromAll(semanticEntityReferences: Set[SemanticEntityReference]): Unit = {
+      semanticEntityReferences.foreach(from)
+    }
+
+    def fromAll(what: entities.type): Unit = {
+      def describedBy(semanticEntityReferences: Set[SemanticEntityReference]): Unit = {
+        semanticEntityReferences.foreach(from)
+      }
+    }
+
     def from(what: entity.type) = new {
       def describedBy(semanticEntityReference: SemanticEntityReference): Unit =
         addRequirement(semanticEntityReference, requiredProperties)
@@ -135,6 +205,7 @@ trait SemanticValueDSL extends SVarActor with NamedActor with WorldInterfaceHand
   }
 
   protected case object entity
+  protected case object entities
   
   protected case class ConstraintSemanticEntityReference(
     semanticEntityReference: SemanticEntityReference, constraints: SemanticTypeSet)
@@ -153,13 +224,26 @@ trait SemanticValueDSL extends SVarActor with NamedActor with WorldInterfaceHand
       onOneEntityAppearance(requirement.semanticEntityReference.toFilter) { e =>
         if(_name.isDefined) {println("[info][" + actorName + "] Got entity " + e.getSimpleName)}
         val storage = new SValSet()
+        localEntityReferences = localEntityReferences.updated(requirement.semanticEntityReference, e)
         localData = localData.updated(requirement.semanticEntityReference, storage)
         onEntityUpdate(e){
           case Add(entity, info) if requirement.matches(info) =>
-            if(_name.isDefined) {println("[info][" + actorName + "] Got requirement " + info.identifier.toString())}
+            if(_name.isDefined) {
+              println(
+                "[info][" + actorName + "] " +
+                "Got requirement " + info.identifier.toString() +
+                " from entity " +  e.getSimpleName
+              )
+            }
             observeSVar(entity, storage)(info)
           case change: Add[_] =>
-            if(_name.isDefined) {println("[info][" + actorName + "] Got but does not require " + change.info.identifier)}
+            if(_name.isDefined) {
+              println(
+                "[info][" + actorName + "] " +
+                "Got but does not require " + change.info.identifier +
+                " from entity " +  e.getSimpleName
+              )
+            }
           case _ =>
         }
       }
@@ -193,15 +277,15 @@ trait SemanticValueDSL extends SVarActor with NamedActor with WorldInterfaceHand
           storage.replaceAllWith(sVal)
       }
 
-      onNewRequirementValue(info, timestamp)
+      onNewRequirementValue(e, info, timestamp)
     }
 
-    onStartOfObservation(info)
+    onStartOfObservation(e, info)
     info.svar.observe(handleNewValue _)
     info.svar.get(handleNewValue _)
   }
 
-  def onNewRequirementValue(requirementInfo: StateParticleInfo[_], timestamp: simx.core.svaractor.TimedRingBuffer.Time)
-  def onStartOfObservation(requirementInfo: StateParticleInfo[_])
+  def onNewRequirementValue(e: Entity, requirementInfo: StateParticleInfo[_], timestamp: simx.core.svaractor.TimedRingBuffer.Time)
+  def onStartOfObservation(e: Entity, requirementInfo: StateParticleInfo[_])
 
 }

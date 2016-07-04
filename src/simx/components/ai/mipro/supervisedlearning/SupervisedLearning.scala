@@ -24,67 +24,61 @@ import java.io.File
 
 import simx.components.ai.feature.recording.storage.{PersistenceOptimized, Storage, Persistence}
 import simx.components.ai.feature.recording.{FastForwardPlayback, EntityPlayer}
+import simx.components.ai.feature.sl_chris.AnnotationReader
 import simx.core.helper.{Jfx, IO}
 import simx.core.svaractor.SVarActor
 
 /**
- * Created by chris on 21/07/15.
- */
+*  Created by chris and martin
+*  on March 2016.
+*/
 trait SupervisedLearning extends SVarActor{
 
-
-  private var entityPlayer: Option[SVarActor.Ref] = None
-
-
-  private val task: Task = getTask(IO.askForOptions("What do you wanna do ? ", "Train", "Test", "Predict"))
-
-  var fromRecording = task match {
-    case  Train() | Test() => if(IO.askForOptions("Load from entity recording ?", "Yes", "No") == 0) true else false
-    case _ => false
-  }
-
-  var playbackFile: Option[File] = task match {
-    case Train() if fromRecording => Jfx.askForFile("Choose entity recording for training")
-    case Test() if fromRecording => Jfx.askForFile("Choose entity recording for testing")
-    case _ => None
-  }
-
-
-  val playbackData = playbackFile.map(f => PersistenceOptimized.fromXml(f))
-
-  playbackData.foreach{data => entityPlayer = Some(SVarActor.createActor(new EntityPlayer(data)))}
-  val playbackAnnotationFile  = playbackFile.map(IO.changeExtension("csv"))
-
+  protected val slMode: Mode =
+    IO.askForOptions("What do you wanna do?",
+      "Record Training Data",
+      "Record Test Data",
+      "Train from Recording",
+      "Test from Recording",
+      "Predict"
+    ) match
+    {
+      case 0 => RecordTrain(Jfx.askForFile("Choose entity recording for training").get)
+      case 1 => RecordTest(Jfx.askForFile("Choose entity recording for testing").get)
+      case 2 => Train()
+      case 3 => Test()
+      case 4 => Predict()
+    }
 
   val neuralNetworkFolder = Jfx.askForFolder("Select neural network folder.").get
-
-  def startPlayback(): Unit ={
-    if(slData.isFromRecording) entityPlayer.collect { case player => player ! FastForwardPlayback(forerunInMillis = 10000L, coolDownInMillis = 3000L, speedUp = 10L) }
-  }
-
-  implicit var slData: SLData = SLData(playbackData, playbackAnnotationFile, task)
-
-  private def getTask(t: Int): Task = {
-    t match {
-      case 0 => Train()
-      case 1 => Test()
-      case 2 => Predict()
+  
+  protected def startPlayback(delay: Long = 0L): Unit = {
+    slMode match {
+      case t: PlaybackMode =>
+        if(delay == 0L)
+          _startPlayback(t.entityPlayer)
+        else
+          addJobIn(delay) {_startPlayback(t.entityPlayer)}
+      case _ =>
     }
   }
+
+  private def _startPlayback(player: SVarActor.Ref): Unit = {
+    player ! FastForwardPlayback(forerunInMillis = 10000L, coolDownInMillis = 3000L, speedUp = 10L)
+  }
 }
 
-case class SLData(playbackData: Option[Storage],
-                  annotationFile: Option[File],
-                  task: Task) {
+abstract class Mode
+abstract class PlaybackMode(playbackFile: File) extends Mode {
+  val playbackData = PersistenceOptimized.fromXml(playbackFile)
+  val entityPlayer = SVarActor.createActor(new EntityPlayer(playbackData))
+  val playbackAnnotationFile  = IO.changeExtension("csv")(playbackFile)
 
-  def isFromRecording = playbackData.isDefined
-  def isTrain = task.isInstanceOf[Train]
-  def isTest = task.isInstanceOf[Test]
-  def isPredict = task.isInstanceOf[Predict]
+  def generateAnnotationReader() =
+    new AnnotationReader(playbackAnnotationFile, playbackData.metaData)
 }
-
-abstract class Task
-case class Train() extends Task
-case class Test() extends Task
-case class Predict() extends Task
-
+case class Train() extends Mode
+case class Test() extends Mode
+case class Predict() extends Mode
+case class RecordTrain(playbackFile: File) extends PlaybackMode(playbackFile)
+case class RecordTest(playbackFile: File) extends PlaybackMode(playbackFile)

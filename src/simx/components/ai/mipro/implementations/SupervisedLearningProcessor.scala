@@ -31,26 +31,42 @@ import simx.components.ai.mipro.helper.PredictionQualityAnalyzer
 import simx.components.ai.mipro.supervisedlearning._
 import simx.components.ai.mipro.supervisedlearning.slprovider.{SlFactory, SlConfiguration}
 import simx.components.ai.mipro.supervisedlearning.slprovider.neuralnetwork.{NeuralNetworkConfiguration, NeuralNetwork}
+import simx.core.entity.description.{SVal, SyncTime, Interpolator}
+import simx.core.ontology.functions.Interpolators
 import simx.core.ontology.types
 import simx.components.ai.mipro.supervisedlearning.helper.Conversion.toList
+import simx.core.svaractor.semantictrait.base.Thing
 
 
-class SupervisedLearningProcessor(implicit val slData: SLData)
+class SupervisedLearningProcessor(val mode: Mode = Predict())
   extends Processor with PredictionQualityAnalyzer {
+
   private var network: Option[NeuralNetwork] = None
   private var gestureName: Option[String] = None
-  private var annotations: Option[AnnotationReader] = None
+  private val annotations: Option[AnnotationReader] = mode match {
+    case m: PlaybackMode => Some(m.generateAnnotationReader())
+    case _=> None
+  }
 
-  if(!slData.isPredict && slData.isFromRecording) annotations =
-    Some(new AnnotationReader(slData.annotationFile.get, slData.playbackData.get.metaData))
   var magic: List[Float] = Nil
 
   def prediction() = {
     val data = allDataSorted
     magic = Nil
     data.foreach{g =>
+
+      def interpolate[T,S <: Thing](sval: SVal[T,_,_,S])(implicit sync: SyncTime) = {
+        val interpolator = new simx.core.ontology.functions.DataTypeBasedLinearInterpolator[T,S]
+        interpolator((sval.value, sval.timestamp) :: sval.getHistory, sync.t0)
+      }
+
+      //interpolator((this.value, this.timestamp) :: getHistory, t)
       val v = localData(g._1).firstSValFor(g._2)
-      val x = v.value match {
+      //TODO: Think about revised implementation that does not create new interpolator instances every tick
+      //TODO: E.g. sort keys for access once and therby store interpolators as well
+      //TODO: Old line was 'val x = v.value match {'
+      //TODO: Old line did not ensure temporal synchronisation
+      val x = interpolate(v) match {
         case a: ConstVec3 => convert(a)
         case a: Float => List(a)
         case a: List[_] if a.forall{ case _: ConstVec3 => true; case _ => false } =>
@@ -66,28 +82,32 @@ class SupervisedLearningProcessor(implicit val slData: SLData)
   private def convert(i: ConstVec3)= List(i.x,i.y,i.z)
 
   def isGestureWith(inputFeatures: List[Double]) = {
-    if(slData.isTrain && slData.isFromRecording) {
+    //slData.isTrain && slData.isFromRecording
+    if(mode.isInstanceOf[RecordTrain]) {
       network.get.appendTrainingData(inputFeatures)(annotations.get.gesture(gestureName.get).isPresent)
       types.Real(toFloat(annotations.get.gesture(gestureName.get).isPresent))
     } else {
       val activation = network.get.predict(new BasicMLData(inputFeatures.toArray)).head
       val gestureIsPresent: Boolean = activation > 0.5f
-      if(slData.isTest && slData.isFromRecording) {
+      //slData.isTest && slData.isFromRecording
+      if(mode.isInstanceOf[RecordTest]) {
         network.get.appendTestData(inputFeatures)(annotations.get.gesture(gestureName.get).isPresent)
         addPrediction(gestureIsPresent, annotations.get(gestureName.get).isPresent)
       }
-      types.Real(activation.toFloat)
+      types.Confidence(activation.toFloat)
     }
   }
 
   private def toFloat(bool: Boolean) = if(bool) 1f else 0f
 
   Reacts to Events.playbackFinished by {
-   if(slData.isTrain && slData.isFromRecording){
+   //slData.isTrain && slData.isFromRecording
+   if(mode.isInstanceOf[RecordTrain]){
      network.get.saveNetwork()
 //     network.get.trainNetwork()
    }
-   if(slData.isTest && slData.isFromRecording) {
+   //slData.isTest && slData.isFromRecording
+   if(mode.isInstanceOf[RecordTest]) {
      println("[SupervisedLearningProcessor] Accuracy on " + network.get.name +" = " + network.get.testOnTestSet())
      network.get.saveNetwork()
      printF1Score()
@@ -100,16 +120,19 @@ class SupervisedLearningProcessor(implicit val slData: SLData)
         case c: NeuralNetworkConfiguration =>
           network = Some(SlFactory.getNeuralNetworkInstance(c))
           gestureName = Some(c.getQualifiedName)
-          if(slData.isTrain && slData.isFromRecording) {
+          //slData.isTrain && slData.isFromRecording
+          if(mode.isInstanceOf[RecordTrain]) {
             network.foreach(n => n.loadTrainData())
           }
-          if(slData.isTest && !slData.isFromRecording) {
+          //slData.isTest && !slData.isFromRecording
+          if(mode.isInstanceOf[Test]) {
             network.foreach{n =>
               n.loadTestData()
               println("[SupervisedLearningProcessor] Accuracy on " + n.name + " = " + n.testOnTestSet())
             }
           }
-          if(slData.isTrain && !slData.isFromRecording) {
+          //slData.isTrain && !slData.isFromRecording
+          if(mode.isInstanceOf[Train]) {
             network.foreach{n => {
               n.loadTrainData()
               n.trainNetwork()

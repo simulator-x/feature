@@ -21,6 +21,7 @@
 package simx.components.ai.mipro.implementations
 
 import simx.components.ai.mipro._
+import simx.core.entity.description.{SValSet, SVal}
 import simx.core.ontology.functions.Interpolators
 import simx.core.ontology.{SValDescription, Symbols, types}
 import simx.core.svaractor.semantictrait.base.{Base, Thing}
@@ -65,9 +66,13 @@ class RelativePositionProcessor(
   entityWithTransformation: SemanticEntityReference
   ) extends Processor with EntityCreationDSL
 {
+
+  def this(entityWithPosition: SemanticEntityReference, entityWithTransformation: SVal.SValType[_]) =
+    this(entityWithPosition, SValSet(entityWithTransformation))
+
   val entityWithRelativePosition = RelativeProcessor.semanticEntityReferenceFor(entityWithPosition)
 
-  Is named ("RelativeProcessor" + entityWithPosition.toShortString)
+  //Is named ("RelativeProcessor" + entityWithPosition.toShortString)
   Creates entity `with` properties entityWithRelativePosition named (entityWithPosition.toShortString + " relative")
 
   Requires property types.Position       from entity describedBy entityWithPosition

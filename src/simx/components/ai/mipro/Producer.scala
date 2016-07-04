@@ -158,7 +158,7 @@ with EventHandler {
 
   override protected def removeFromLocalRep(e: Entity): Unit = {}
 
-  override def onNewRequirementValue(requirementInfo: StateParticleInfo[_], timestamp: Time): Unit = {}
+  override def onNewRequirementValue(e: Entity, requirementInfo: StateParticleInfo[_], timestamp: Time): Unit = {}
 
-  override def onStartOfObservation(requirementInfo: StateParticleInfo[_]): Unit = {}
+  override def onStartOfObservation(e: Entity, requirementInfo: StateParticleInfo[_]): Unit = {}
 }

@@ -73,9 +73,6 @@ trait ProcessingNode extends SemanticValueDSL with EventDSL {
     semanticType: SValDescription[DataType,B,X,S],
     entityRequestCall: (EntityFilter, Entity => Any) => Unit ): IncompleteProduction_ToType[DataType,B,X,S]
 
-  protected case object entities
-  protected case object properties
-
   //Updates properties of RightHand with {...}
   //Updates propertiesOf entity describedBy RightHand with {...}
   protected object Updates {

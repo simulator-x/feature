@@ -20,7 +20,7 @@
 
 package simx.components.ai.mipro.supervisedlearning.slprovider
 
-import simx.components.ai.mipro.supervisedlearning.Task
+import simx.components.ai.mipro.supervisedlearning.Mode
 import simx.components.ai.mipro.supervisedlearning.slprovider.neuralnetwork.{NeuralNetworkConfiguration, NeuralNetwork}
 
 /**

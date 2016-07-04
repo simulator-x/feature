@@ -31,7 +31,7 @@ import org.encog.neural.networks.training.propagation.Propagation
 import org.encog.neural.networks.training.propagation.resilient.ResilientPropagation
 import simx.components.ai.mipro.helper.PredictionQualityAnalyzer
 import simx.components.ai.mipro.supervisedlearning.util.NeuralNetworkState
-import simx.components.ai.mipro.supervisedlearning.{Predict, Task}
+import simx.components.ai.mipro.supervisedlearning.{Predict, Mode}
 
 import scala.collection.mutable
 
